@@ -1,0 +1,57 @@
+{
+  "name": "@3land/capacitor-wallet-extension",
+  "version": "0.0.2",
+  "description": "iOS-only Capacitor 7 plugin for connecting Solana wallets through an iCloud-native wallet or external wallet deeplinks.",
+  "main": "dist/esm/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist/",
+    "src/",
+    "ios/Sources/",
+    "ios/Tests/",
+    "README.md",
+    "Package.swift",
+    "3landCapacitorWalletExtension.podspec"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "3land",
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/3land/capacitor-wallet-extension",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/3land/capacitor-wallet-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/3land/capacitor-wallet-extension/issues"
+  },
+  "keywords": [
+    "capacitor",
+    "capacitor-plugin",
+    "ios",
+    "solana",
+    "wallet",
+    "deeplink"
+  ],
+  "scripts": {
+    "build": "npm run clean && tsc",
+    "clean": "rimraf ./dist",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^7.0.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.3"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}
