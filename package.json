@@ -1,6 +1,6 @@
 {
   "name": "@3land/capacitor-wallet-extension",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "iOS-only Capacitor 7 plugin for connecting Solana wallets through an iCloud-native wallet or external wallet deeplinks.",
   "main": "dist/esm/index.js",
   "module": "dist/esm/index.js",
