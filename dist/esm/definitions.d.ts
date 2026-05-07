@@ -1,0 +1,34 @@
+export type WalletType = 'icloud' | 'android' | 'phantom' | 'solflare' | 'backpack';
+export interface GetAvailableWalletsResult {
+    wallets: WalletType[];
+}
+export interface ConnectUsingOptions {
+    walletType: WalletType;
+}
+export interface ConnectUsingResult {
+    publicKey: string;
+    walletType: WalletType;
+    cached: boolean;
+}
+export interface SignMessageOptions {
+    message: string;
+}
+export interface SignMessageResult {
+    signature: string;
+    walletType: WalletType;
+}
+export interface SignTransactionsOptions {
+    transactions: string[];
+}
+export interface SignTransactionsResult {
+    transactions: string[];
+    walletType: WalletType;
+}
+export interface WalletExtensionPlugin {
+    getAvailableWallets(): Promise<GetAvailableWalletsResult>;
+    connectUsing(options: ConnectUsingOptions): Promise<ConnectUsingResult>;
+    signMessage(options: SignMessageOptions): Promise<SignMessageResult>;
+    signTransactions(options: SignTransactionsOptions): Promise<SignTransactionsResult>;
+    logout(): Promise<void>;
+}
+//# sourceMappingURL=definitions.d.ts.map

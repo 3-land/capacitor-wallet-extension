@@ -1,0 +1,157 @@
+import Foundation
+import Capacitor
+
+@objc(WalletExtensionPlugin)
+public class WalletExtensionPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "WalletExtensionPlugin"
+    public let jsName = "WalletExtension"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "getAvailableWallets", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectUsing", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "signMessage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "signTransactions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "logout", returnType: CAPPluginReturnPromise)
+    ]
+
+    private let implementation = WalletExtension()
+
+    public override func load() {
+        super.load()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleUrlOpened(notification:)),
+            name: Notification.Name.capacitorOpenURL,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleUniversalLink(notification:)),
+            name: Notification.Name.capacitorOpenUniversalLink,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc public func getAvailableWallets(_ call: CAPPluginCall) {
+        call.resolve([
+            "wallets": implementation.getAvailableWallets()
+        ])
+    }
+
+    @objc public func connectUsing(_ call: CAPPluginCall) {
+        guard let walletType = call.getString("walletType"), !walletType.isEmpty else {
+            reject(.missingParameter("walletType"), call: call)
+            return
+        }
+
+        bridge?.saveCall(call)
+
+        implementation.connect(using: walletType) { [weak self] result in
+            self?.bridge?.releaseCall(call)
+
+            switch result {
+            case .success(let result):
+                call.resolve([
+                    "publicKey": result.session.publicKey,
+                    "walletType": result.session.walletType.rawValue,
+                    "cached": result.cached
+                ])
+            case .failure(let error):
+                self?.reject(error, call: call)
+            }
+        }
+    }
+
+    @objc public func signMessage(_ call: CAPPluginCall) {
+        guard let message = call.getString("message"), !message.isEmpty else {
+            reject(.missingParameter("message"), call: call)
+            return
+        }
+
+        bridge?.saveCall(call)
+
+        implementation.signMessage(message) { [weak self] result in
+            self?.bridge?.releaseCall(call)
+
+            switch result {
+            case .success(let result):
+                call.resolve([
+                    "signature": result.signature,
+                    "walletType": result.walletType.rawValue
+                ])
+            case .failure(let error):
+                self?.reject(error, call: call)
+            }
+        }
+    }
+
+    @objc public func signTransactions(_ call: CAPPluginCall) {
+        guard let transactions = call.getArray("transactions", String.self),
+              !transactions.isEmpty else {
+            reject(.missingParameter("transactions"), call: call)
+            return
+        }
+
+        bridge?.saveCall(call)
+
+        implementation.signTransactions(transactions) { [weak self] result in
+            self?.bridge?.releaseCall(call)
+
+            switch result {
+            case .success(let result):
+                call.resolve([
+                    "transactions": result.transactions,
+                    "walletType": result.walletType.rawValue
+                ])
+            case .failure(let error):
+                self?.reject(error, call: call)
+            }
+        }
+    }
+
+    @objc public func logout(_ call: CAPPluginCall) {
+        do {
+            try implementation.logout()
+            call.resolve()
+        } catch let error as WalletExtensionError {
+            reject(error, call: call)
+        } catch {
+            reject(.cryptography("Failed to clear the connected wallet session."), call: call)
+        }
+    }
+
+    @objc private func handleUrlOpened(notification: NSNotification) {
+        if let url = extractURL(from: notification) {
+            implementation.handleRedirect(url)
+        }
+    }
+
+    @objc private func handleUniversalLink(notification: NSNotification) {
+        if let url = extractURL(from: notification) {
+            implementation.handleRedirect(url)
+        }
+    }
+
+    private func extractURL(from notification: NSNotification) -> URL? {
+        guard let object = notification.object as? [String: Any] else {
+            return nil
+        }
+
+        if let url = object["url"] as? URL {
+            return url
+        }
+
+        if let url = object["url"] as? NSURL {
+            return url as URL
+        }
+
+        return nil
+    }
+
+    private func reject(_ error: WalletExtensionError, call: CAPPluginCall) {
+        call.reject(error.errorDescription ?? "Unknown wallet extension error.", error.code, nil)
+    }
+}

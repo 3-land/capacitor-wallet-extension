@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="app.phantom" />
+        <package android:name="com.solflare.mobile" />
+        <package android:name="app.backpack.mobile" />
+    </queries>
+
+    <application>
+        <activity
+            android:name=".WalletExtensionRedirectActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="wallet-extension"
+                    android:scheme="${applicationId}" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
