@@ -5,6 +5,7 @@ import type {
   ConnectUsingOptions,
   ConnectUsingResult,
   GetAvailableWalletsResult,
+  HasWalletBeenBackedUpResult,
   SignMessageOptions,
   SignMessageResult,
   SignTransactionsOptions,
@@ -41,6 +42,7 @@ interface WalletExtensionNativePlugin extends Partial<WalletExtensionPlugin> {
   getInstalledWallets?: () => Promise<GetAvailableWalletsResult>;
   getWalletRecord?: () => Promise<GetWalletRecordResult>;
   saveWalletRecord?: (options: AndroidWalletRecord) => Promise<void>;
+  hasWalletBeenBackedUp?: () => Promise<HasWalletBeenBackedUpResult>;
   getCachedSession?: () => Promise<{ session?: string }>;
   saveCachedSession?: (options: { session: string }) => Promise<void>;
   getRedirectScheme?: () => Promise<{ scheme: string }>;
@@ -391,6 +393,17 @@ const WalletExtension: WalletExtensionPlugin = {
       transactions: response.transactions,
       walletType: externalSession.walletType,
     };
+  },
+
+  async hasWalletBeenBackedUp(): Promise<HasWalletBeenBackedUpResult> {
+    if (Capacitor.getPlatform() !== 'android') {
+      throw walletError(
+        'UNAVAILABLE',
+        'WalletExtension.hasWalletBeenBackedUp is only available on Android.',
+      );
+    }
+
+    return requireNativeMethod('hasWalletBeenBackedUp')();
   },
 
   async logout(): Promise<void> {

@@ -153,6 +153,13 @@ public class WalletExtensionPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void hasWalletBeenBackedUp(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("backedUp", walletStore.hasWalletBeenBackedUp());
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void openWalletDeeplink(PluginCall call) {
         String walletType = call.getString("walletType");
         String url = call.getString("url");

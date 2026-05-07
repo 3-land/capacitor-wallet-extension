@@ -24,11 +24,15 @@ export interface SignTransactionsResult {
     transactions: string[];
     walletType: WalletType;
 }
+export interface HasWalletBeenBackedUpResult {
+    backedUp: boolean;
+}
 export interface WalletExtensionPlugin {
     getAvailableWallets(): Promise<GetAvailableWalletsResult>;
     connectUsing(options: ConnectUsingOptions): Promise<ConnectUsingResult>;
     signMessage(options: SignMessageOptions): Promise<SignMessageResult>;
     signTransactions(options: SignTransactionsOptions): Promise<SignTransactionsResult>;
+    hasWalletBeenBackedUp(): Promise<HasWalletBeenBackedUpResult>;
     logout(): Promise<void>;
 }
 //# sourceMappingURL=definitions.d.ts.map

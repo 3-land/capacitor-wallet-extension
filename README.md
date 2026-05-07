@@ -2,12 +2,13 @@
 
 Capacitor 7 plugin for Solana wallet connectivity in a Capacitor app.
 
-It exposes five native methods:
+It exposes six native methods:
 
 - `getAvailableWallets()`
 - `connectUsing({ walletType })`
 - `signMessage({ message })`
 - `signTransactions({ transactions })`
+- `hasWalletBeenBackedUp()`
 - `logout()`
 
 The plugin supports:
@@ -85,6 +86,17 @@ For silent recovery after uninstall/reinstall, the device still needs:
 - Android Backup enabled for the user/device restore flow
 
 If Block Store is unavailable, the wallet still works locally on that device, but cross-reinstall recovery is not guaranteed.
+If backup is temporarily unavailable when the wallet is first created, the plugin now retries the Block Store sync on later wallet loads.
+
+To verify the Android backup flow during development:
+
+- Confirm `Settings > Google > Backup` is enabled on the device.
+- Create the `android` wallet, fully close the app, reopen it once so any retry can run, then uninstall and reinstall.
+- Watch Logcat for the `AndroidWalletStore` tag. A successful backup logs `Backed up the Android wallet to Block Store.` and a successful restore logs `Restored the Android wallet from Block Store.`
+
+The Android-only backup helper method exposes one signal:
+
+- `hasWalletBeenBackedUp()` reports whether this plugin has successfully stored the current Android wallet into Block Store on this device. It does not guarantee that a later cloud sync has already completed.
 
 ## Vue Usage
 
@@ -181,3 +193,20 @@ Returns:
 
 Clears the remembered connected wallet session from memory and local cache.
 It does not delete the native `icloud` or `android` wallet itself.
+
+### `hasWalletBeenBackedUp()`
+
+Android only.
+
+Returns:
+
+```ts
+{
+  backedUp: true,
+}
+```
+
+Notes:
+
+- `true` means the plugin successfully stored the wallet in Block Store.
+- `false` means the wallet either does not exist yet or the last Block Store write has not succeeded yet.

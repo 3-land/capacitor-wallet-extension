@@ -200,6 +200,12 @@ const WalletExtension = {
             walletType: externalSession.walletType,
         };
     },
+    async hasWalletBeenBackedUp() {
+        if (Capacitor.getPlatform() !== 'android') {
+            throw walletError('UNAVAILABLE', 'WalletExtension.hasWalletBeenBackedUp is only available on Android.');
+        }
+        return requireNativeMethod('hasWalletBeenBackedUp')();
+    },
     async logout() {
         if (Capacitor.getPlatform() !== 'android') {
             return requireNativeMethod('logout')();
