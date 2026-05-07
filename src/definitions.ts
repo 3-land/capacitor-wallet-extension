@@ -42,5 +42,6 @@ export interface WalletExtensionPlugin {
   signMessage(options: SignMessageOptions): Promise<SignMessageResult>;
   signTransactions(options: SignTransactionsOptions): Promise<SignTransactionsResult>;
   hasWalletBeenBackedUp(): Promise<HasWalletBeenBackedUpResult>;
+  retryBackUp(): Promise<boolean>;
   logout(): Promise<void>;
 }

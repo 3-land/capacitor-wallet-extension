@@ -20,6 +20,10 @@ final class AndroidWalletStore {
         void onError(String message);
     }
 
+    interface RetryBackupCallback {
+        void onComplete(boolean backedUp);
+    }
+
     private static final String LOCAL_STORAGE_KEY = "android-wallet-record";
     private static final String BACKUP_STORAGE_KEY = "android-wallet-record";
     private static final String BACKUP_PREFS_NAME =
@@ -101,6 +105,23 @@ final class AndroidWalletStore {
 
     boolean hasWalletBeenBackedUp() {
         return isBackupSynced();
+    }
+
+    void retryBackUp(RetryBackupCallback callback) {
+        try {
+            String localWalletRecord = secureStorage.loadString(LOCAL_STORAGE_KEY);
+            if (localWalletRecord == null) {
+                callback.onComplete(false);
+                return;
+            }
+
+            syncBackup(localWalletRecord, error -> callback.onComplete(error == null));
+        } catch (Exception error) {
+            secureStorage.delete(LOCAL_STORAGE_KEY);
+            setBackupSynced(false);
+            Log.w(TAG, "Failed to load the Android wallet for a manual Block Store retry.", error);
+            callback.onComplete(false);
+        }
     }
 
     private void syncBackupIfNeeded(String serializedWallet) {

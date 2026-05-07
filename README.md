@@ -2,13 +2,14 @@
 
 Capacitor 7 plugin for Solana wallet connectivity in a Capacitor app.
 
-It exposes six native methods:
+It exposes seven native methods:
 
 - `getAvailableWallets()`
 - `connectUsing({ walletType })`
 - `signMessage({ message })`
 - `signTransactions({ transactions })`
 - `hasWalletBeenBackedUp()`
+- `retryBackUp()`
 - `logout()`
 
 The plugin supports:
@@ -97,6 +98,7 @@ To verify the Android backup flow during development:
 The Android-only backup helper method exposes one signal:
 
 - `hasWalletBeenBackedUp()` reports whether this plugin has successfully stored the current Android wallet into Block Store on this device. It does not guarantee that a later cloud sync has already completed.
+- `retryBackUp()` forces a fresh Block Store write for the current Android wallet and resolves immediately with whether that specific write succeeded.
 
 ## Vue Usage
 
@@ -210,3 +212,18 @@ Notes:
 
 - `true` means the plugin successfully stored the wallet in Block Store.
 - `false` means the wallet either does not exist yet or the last Block Store write has not succeeded yet.
+
+### `retryBackUp()`
+
+Android only.
+
+Returns:
+
+```ts
+true
+```
+
+Notes:
+
+- `true` means the manual Block Store retry succeeded during that call.
+- `false` means there was no local Android wallet to back up, or the manual Block Store write failed.

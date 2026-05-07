@@ -160,6 +160,15 @@ public class WalletExtensionPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void retryBackUp(PluginCall call) {
+        walletStore.retryBackUp(backedUp -> {
+            JSObject result = new JSObject();
+            result.put("backedUp", backedUp);
+            call.resolve(result);
+        });
+    }
+
+    @PluginMethod
     public void openWalletDeeplink(PluginCall call) {
         String walletType = call.getString("walletType");
         String url = call.getString("url");

@@ -206,6 +206,13 @@ const WalletExtension = {
         }
         return requireNativeMethod('hasWalletBeenBackedUp')();
     },
+    async retryBackUp() {
+        if (Capacitor.getPlatform() !== 'android') {
+            throw walletError('UNAVAILABLE', 'WalletExtension.retryBackUp is only available on Android.');
+        }
+        const result = await requireNativeMethod('retryBackUp')();
+        return result.backedUp === true;
+    },
     async logout() {
         if (Capacitor.getPlatform() !== 'android') {
             return requireNativeMethod('logout')();

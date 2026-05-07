@@ -38,11 +38,13 @@ interface GetWalletRecordResult {
   secretKey?: string;
 }
 
-interface WalletExtensionNativePlugin extends Partial<WalletExtensionPlugin> {
+interface WalletExtensionNativePlugin
+  extends Partial<Omit<WalletExtensionPlugin, 'retryBackUp'>> {
   getInstalledWallets?: () => Promise<GetAvailableWalletsResult>;
   getWalletRecord?: () => Promise<GetWalletRecordResult>;
   saveWalletRecord?: (options: AndroidWalletRecord) => Promise<void>;
   hasWalletBeenBackedUp?: () => Promise<HasWalletBeenBackedUpResult>;
+  retryBackUp?: () => Promise<{ backedUp?: boolean }>;
   getCachedSession?: () => Promise<{ session?: string }>;
   saveCachedSession?: (options: { session: string }) => Promise<void>;
   getRedirectScheme?: () => Promise<{ scheme: string }>;
@@ -404,6 +406,18 @@ const WalletExtension: WalletExtensionPlugin = {
     }
 
     return requireNativeMethod('hasWalletBeenBackedUp')();
+  },
+
+  async retryBackUp(): Promise<boolean> {
+    if (Capacitor.getPlatform() !== 'android') {
+      throw walletError(
+        'UNAVAILABLE',
+        'WalletExtension.retryBackUp is only available on Android.',
+      );
+    }
+
+    const result = await requireNativeMethod('retryBackUp')();
+    return result.backedUp === true;
   },
 
   async logout(): Promise<void> {
