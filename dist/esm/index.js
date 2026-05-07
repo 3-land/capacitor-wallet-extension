@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import nacl from 'tweetnacl';
 import { decodeBase58, encodeBase58 } from './base58';
+import { entropyToMnemonic, mnemonicToEntropy } from './mnemonics';
 import { signSerializedTransaction } from './solana';
 const WalletExtensionNative = registerPlugin('WalletExtension');
 const REDIRECT_HOST = 'wallet-extension';
@@ -93,7 +94,7 @@ const WalletExtension = {
             throw walletError('MALFORMED_CALLBACK', 'Wallet encryption public key was missing from the connect callback.');
         }
         const decryptedPayload = decryptPayload(query, walletEncryptionPublicKey, dappSecretKey);
-        const response = parseJson(decryptedPayload, 'Failed to process the external wallet connect callback.');
+        const response = parseJson(decryptedPayload, 'MALFORMED_CALLBACK', 'Failed to process the external wallet connect callback.');
         const nextSession = {
             walletType,
             publicKey: response.public_key,
@@ -145,7 +146,7 @@ const WalletExtension = {
             throw walletError('CALLBACK_ERROR', errorMessage);
         }
         const decryptedPayload = decryptPayload(query, externalSession.walletEncryptionPublicKey, externalSession.dappEncryptionSecretKey);
-        const response = parseJson(decryptedPayload, 'Failed to process the external wallet signMessage callback.');
+        const response = parseJson(decryptedPayload, 'MALFORMED_CALLBACK', 'Failed to process the external wallet signMessage callback.');
         const verified = nacl.sign.detached.verify(decodeBase58(message), decodeBase58(response.signature), decodeBase58(session.publicKey));
         if (!verified) {
             throw walletError('CALLBACK_ERROR', 'The external wallet returned a signature that could not be verified.');
@@ -191,7 +192,7 @@ const WalletExtension = {
             throw walletError('CALLBACK_ERROR', errorMessage);
         }
         const decryptedPayload = decryptPayload(query, externalSession.walletEncryptionPublicKey, externalSession.dappEncryptionSecretKey);
-        const response = parseJson(decryptedPayload, 'Failed to process the external wallet signAllTransactions callback.');
+        const response = parseJson(decryptedPayload, 'MALFORMED_CALLBACK', 'Failed to process the external wallet signAllTransactions callback.');
         if (response.transactions.length !== transactions.length) {
             throw walletError('CALLBACK_ERROR', 'The external wallet returned an unexpected number of signed transactions.');
         }
@@ -199,6 +200,39 @@ const WalletExtension = {
             transactions: response.transactions,
             walletType: externalSession.walletType,
         };
+    },
+    async getWalletMnemonics() {
+        assertNativeWalletPlatform();
+        const wallet = await ensureNativeWallet();
+        const seed = extractSeedFromWallet(wallet);
+        return {
+            mnemonics: await entropyToMnemonic(seed),
+        };
+    },
+    async recoverWalletFromMnemonics(options) {
+        assertNativeWalletPlatform();
+        try {
+            const normalizedMnemonic = normalizeMnemonicInput(options.mnemonics);
+            const seed = await mnemonicToEntropy(normalizedMnemonic);
+            if (seed.length !== nacl.sign.seedLength) {
+                return false;
+            }
+            const wallet = createWalletRecordFromSeed(seed);
+            await saveNativeWallet(wallet);
+            if (Capacitor.getPlatform() === 'android') {
+                const backupStatus = await requireNativeMethod('hasWalletBeenBackedUp')();
+                if (backupStatus.backedUp !== true) {
+                    const retriedBackup = await requireNativeMethod('retryBackUp')();
+                    if (retriedBackup.backedUp !== true) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        catch {
+            return false;
+        }
     },
     async hasWalletBeenBackedUp() {
         if (Capacitor.getPlatform() !== 'android') {
@@ -240,7 +274,7 @@ async function getCurrentAndroidSession() {
         cachedSession = null;
         return null;
     }
-    cachedSession = parseJson(result.session, 'Failed to read the cached wallet session.');
+    cachedSession = parseJson(result.session, 'CRYPTOGRAPHY_FAILURE', 'Failed to read the cached wallet session.');
     return cachedSession;
 }
 async function saveCurrentAndroidSession(session) {
@@ -256,36 +290,74 @@ async function requireCurrentAndroidSession() {
     }
     return session;
 }
-async function getStoredAndroidWallet() {
+async function getCurrentNativeSession() {
+    if (Capacitor.getPlatform() === 'android') {
+        return getCurrentAndroidSession();
+    }
+    const result = await requireNativeMethod('getCachedSession')();
+    if (!result.session) {
+        return null;
+    }
+    return parseJson(result.session, 'CRYPTOGRAPHY_FAILURE', 'Failed to read the cached wallet session.');
+}
+async function saveCurrentNativeSession(session) {
+    if (Capacitor.getPlatform() === 'android') {
+        await saveCurrentAndroidSession(session);
+        return;
+    }
+    await requireNativeMethod('saveCachedSession')({
+        session: JSON.stringify(session),
+    });
+}
+async function getStoredNativeWallet() {
     if (cachedAndroidWallet !== undefined) {
         return cachedAndroidWallet;
     }
     const result = await requireNativeMethod('getWalletRecord')();
     if (!result.present) {
-        cachedAndroidWallet = null;
+        if (Capacitor.getPlatform() === 'android') {
+            cachedAndroidWallet = null;
+        }
         return null;
     }
     if (!result.publicKey || !result.secretKey) {
-        throw walletError('CRYPTOGRAPHY_FAILURE', 'The Android wallet record is incomplete.');
+        throw walletError('CRYPTOGRAPHY_FAILURE', 'The native wallet record is incomplete.');
     }
-    cachedAndroidWallet = {
+    const wallet = {
         publicKey: result.publicKey,
         secretKey: result.secretKey,
     };
-    return cachedAndroidWallet;
+    if (Capacitor.getPlatform() === 'android') {
+        cachedAndroidWallet = wallet;
+    }
+    return wallet;
 }
-async function ensureAndroidWallet() {
-    const existingWallet = await getStoredAndroidWallet();
+async function ensureNativeWallet() {
+    if (Capacitor.getPlatform() === 'android') {
+        return ensureAndroidWallet();
+    }
+    const existingWallet = await getStoredNativeWallet();
     if (existingWallet) {
         return existingWallet;
     }
-    const keyPair = nacl.sign.keyPair();
-    const nextWallet = {
-        publicKey: encodeBase58(keyPair.publicKey),
-        secretKey: encodeBase58(keyPair.secretKey),
-    };
-    await requireNativeMethod('saveWalletRecord')(nextWallet);
-    cachedAndroidWallet = nextWallet;
+    const nextWallet = createWalletRecordFromSeed(nacl.randomBytes(nacl.sign.seedLength));
+    await saveNativeWallet(nextWallet);
+    return nextWallet;
+}
+async function saveNativeWallet(wallet) {
+    await requireNativeMethod('saveWalletRecord')(wallet);
+    if (Capacitor.getPlatform() === 'android') {
+        cachedAndroidWallet = wallet;
+    }
+    await syncNativeSessionPublicKey(wallet.publicKey);
+}
+async function ensureAndroidWallet() {
+    const existingWallet = await getStoredNativeWallet();
+    if (existingWallet) {
+        return existingWallet;
+    }
+    const nextWallet = createWalletRecordFromSeed(nacl.randomBytes(nacl.sign.seedLength));
+    await saveNativeWallet(nextWallet);
     return nextWallet;
 }
 async function requireAndroidWallet() {
@@ -294,6 +366,56 @@ async function requireAndroidWallet() {
         throw walletError('CRYPTOGRAPHY_FAILURE', 'Failed to load the Android wallet record.');
     }
     return wallet;
+}
+async function syncNativeSessionPublicKey(publicKey) {
+    const session = await getCurrentNativeSession();
+    const nativeWalletType = getPlatformNativeWalletType();
+    if (!session || session.walletType !== nativeWalletType) {
+        return;
+    }
+    if (session.publicKey === publicKey) {
+        return;
+    }
+    await saveCurrentNativeSession({
+        ...session,
+        publicKey,
+    });
+}
+function extractSeedFromWallet(wallet) {
+    const secretKey = decodeBase58(wallet.secretKey);
+    if (secretKey.length !== nacl.sign.secretKeyLength) {
+        throw walletError('CRYPTOGRAPHY_FAILURE', 'The native wallet secret key was malformed.');
+    }
+    const seed = secretKey.slice(0, nacl.sign.seedLength);
+    const rebuiltWallet = createWalletRecordFromSeed(seed);
+    if (rebuiltWallet.publicKey !== wallet.publicKey ||
+        rebuiltWallet.secretKey !== wallet.secretKey) {
+        throw walletError('CRYPTOGRAPHY_FAILURE', 'The stored wallet could not be represented as recovery mnemonics.');
+    }
+    return seed;
+}
+function createWalletRecordFromSeed(seed) {
+    const keyPair = nacl.sign.keyPair.fromSeed(seed);
+    return {
+        publicKey: encodeBase58(keyPair.publicKey),
+        secretKey: encodeBase58(keyPair.secretKey),
+    };
+}
+function normalizeMnemonicInput(mnemonics) {
+    if (Array.isArray(mnemonics)) {
+        return mnemonics.join(' ');
+    }
+    return mnemonics;
+}
+function assertNativeWalletPlatform() {
+    const platform = Capacitor.getPlatform();
+    if (platform === 'ios' || platform === 'android') {
+        return;
+    }
+    throw walletError('UNAVAILABLE', 'WalletExtension native wallet recovery is only available on iOS and Android.');
+}
+function getPlatformNativeWalletType() {
+    return Capacitor.getPlatform() === 'android' ? 'android' : 'icloud';
 }
 async function assertExternalWalletInstalled(walletType) {
     const installedWallets = await requireNativeMethod('getInstalledWallets')();
@@ -353,12 +475,12 @@ function decryptPayload(query, walletEncryptionPublicKey, dappSecretKey) {
     }
     return textDecoder.decode(decrypted);
 }
-function parseJson(value, message) {
+function parseJson(value, code, message) {
     try {
         return JSON.parse(value);
     }
     catch {
-        throw walletError('MALFORMED_CALLBACK', message);
+        throw walletError(code, message);
     }
 }
 function canReuseWithoutReconnect(session) {

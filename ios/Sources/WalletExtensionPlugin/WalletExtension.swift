@@ -5,6 +5,8 @@ final class WalletExtension {
     private let iCloudWalletManager = ICloudWalletManager()
     private let externalWalletCoordinator = ExternalWalletCoordinator()
     private let walletAvailabilityChecker = WalletAvailabilityChecker()
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
 
     func getAvailableWallets() -> [String] {
         walletAvailabilityChecker.availableWallets().map(\.rawValue)
@@ -148,6 +150,34 @@ final class WalletExtension {
     func logout() throws {
         externalWalletCoordinator.cancelPendingRequest(reason: "The current wallet session was cleared.")
         try sessionStore.clear()
+    }
+
+    func getWalletRecord() throws -> ICloudWalletRecord? {
+        try iCloudWalletManager.loadWalletRecord()
+    }
+
+    func saveWalletRecord(publicKey: String, secretKey: String) throws {
+        let record = ICloudWalletRecord(
+            publicKey: publicKey,
+            secretKey: secretKey
+        )
+
+        try iCloudWalletManager.saveWalletRecord(record)
+    }
+
+    func getCachedSession() throws -> String? {
+        guard let session = sessionStore.currentSession else {
+            return nil
+        }
+
+        let data = try encoder.encode(session)
+        return String(data: data, encoding: .utf8)
+    }
+
+    func saveCachedSession(_ session: String) throws {
+        let data = Data(session.utf8)
+        let decodedSession = try decoder.decode(ConnectedWalletSession.self, from: data)
+        try sessionStore.save(decodedSession)
     }
 
     func handleRedirect(_ url: URL) {

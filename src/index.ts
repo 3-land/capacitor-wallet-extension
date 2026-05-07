@@ -5,7 +5,9 @@ import type {
   ConnectUsingOptions,
   ConnectUsingResult,
   GetAvailableWalletsResult,
+  GetWalletMnemonicsResult,
   HasWalletBeenBackedUpResult,
+  RecoverWalletFromMnemonicsOptions,
   SignMessageOptions,
   SignMessageResult,
   SignTransactionsOptions,
@@ -14,9 +16,11 @@ import type {
   WalletType,
 } from './definitions';
 import { decodeBase58, encodeBase58 } from './base58';
+import { entropyToMnemonic, mnemonicToEntropy } from './mnemonics';
 import { signSerializedTransaction } from './solana';
 
 type ExternalWalletType = Extract<WalletType, 'phantom' | 'solflare' | 'backpack'>;
+type NativeWalletType = Extract<WalletType, 'icloud' | 'android'>;
 
 interface ConnectedWalletSession {
   walletType: WalletType;
@@ -27,7 +31,7 @@ interface ConnectedWalletSession {
   walletEncryptionPublicKey?: string;
 }
 
-interface AndroidWalletRecord {
+interface NativeWalletRecord {
   publicKey: string;
   secretKey: string;
 }
@@ -42,7 +46,7 @@ interface WalletExtensionNativePlugin
   extends Partial<Omit<WalletExtensionPlugin, 'retryBackUp'>> {
   getInstalledWallets?: () => Promise<GetAvailableWalletsResult>;
   getWalletRecord?: () => Promise<GetWalletRecordResult>;
-  saveWalletRecord?: (options: AndroidWalletRecord) => Promise<void>;
+  saveWalletRecord?: (options: NativeWalletRecord) => Promise<void>;
   hasWalletBeenBackedUp?: () => Promise<HasWalletBeenBackedUpResult>;
   retryBackUp?: () => Promise<{ backedUp?: boolean }>;
   getCachedSession?: () => Promise<{ session?: string }>;
@@ -100,7 +104,7 @@ const externalWallets: Record<ExternalWalletType, ExternalWalletMetadata> = {
 };
 
 let cachedSession: ConnectedWalletSession | null | undefined;
-let cachedAndroidWallet: AndroidWalletRecord | null | undefined;
+let cachedAndroidWallet: NativeWalletRecord | null | undefined;
 let cachedRedirectScheme: string | undefined;
 
 const WalletExtension: WalletExtensionPlugin = {
@@ -203,6 +207,7 @@ const WalletExtension: WalletExtensionPlugin = {
     );
     const response = parseJson<ExternalConnectResponse>(
       decryptedPayload,
+      'MALFORMED_CALLBACK',
       'Failed to process the external wallet connect callback.',
     );
     const nextSession: ConnectedWalletSession = {
@@ -289,6 +294,7 @@ const WalletExtension: WalletExtensionPlugin = {
     );
     const response = parseJson<ExternalSignMessageResponse>(
       decryptedPayload,
+      'MALFORMED_CALLBACK',
       'Failed to process the external wallet signMessage callback.',
     );
     const verified = nacl.sign.detached.verify(
@@ -381,6 +387,7 @@ const WalletExtension: WalletExtensionPlugin = {
     );
     const response = parseJson<ExternalSignTransactionsResponse>(
       decryptedPayload,
+      'MALFORMED_CALLBACK',
       'Failed to process the external wallet signAllTransactions callback.',
     );
 
@@ -395,6 +402,49 @@ const WalletExtension: WalletExtensionPlugin = {
       transactions: response.transactions,
       walletType: externalSession.walletType,
     };
+  },
+
+  async getWalletMnemonics(): Promise<GetWalletMnemonicsResult> {
+    assertNativeWalletPlatform();
+
+    const wallet = await ensureNativeWallet();
+    const seed = extractSeedFromWallet(wallet);
+
+    return {
+      mnemonics: await entropyToMnemonic(seed),
+    };
+  },
+
+  async recoverWalletFromMnemonics(
+    options: RecoverWalletFromMnemonicsOptions,
+  ): Promise<boolean> {
+    assertNativeWalletPlatform();
+
+    try {
+      const normalizedMnemonic = normalizeMnemonicInput(options.mnemonics);
+      const seed = await mnemonicToEntropy(normalizedMnemonic);
+      if (seed.length !== nacl.sign.seedLength) {
+        return false;
+      }
+
+      const wallet = createWalletRecordFromSeed(seed);
+      await saveNativeWallet(wallet);
+
+      if (Capacitor.getPlatform() === 'android') {
+        const backupStatus =
+          await requireNativeMethod('hasWalletBeenBackedUp')();
+        if (backupStatus.backedUp !== true) {
+          const retriedBackup = await requireNativeMethod('retryBackUp')();
+          if (retriedBackup.backedUp !== true) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
   },
 
   async hasWalletBeenBackedUp(): Promise<HasWalletBeenBackedUpResult> {
@@ -463,6 +513,7 @@ async function getCurrentAndroidSession(): Promise<ConnectedWalletSession | null
 
   cachedSession = parseJson<ConnectedWalletSession>(
     result.session,
+    'CRYPTOGRAPHY_FAILURE',
     'Failed to read the cached wallet session.',
   );
   return cachedSession;
@@ -489,49 +540,111 @@ async function requireCurrentAndroidSession(): Promise<ConnectedWalletSession> {
   return session;
 }
 
-async function getStoredAndroidWallet(): Promise<AndroidWalletRecord | null> {
+async function getCurrentNativeSession(): Promise<ConnectedWalletSession | null> {
+  if (Capacitor.getPlatform() === 'android') {
+    return getCurrentAndroidSession();
+  }
+
+  const result = await requireNativeMethod('getCachedSession')();
+  if (!result.session) {
+    return null;
+  }
+
+  return parseJson<ConnectedWalletSession>(
+    result.session,
+    'CRYPTOGRAPHY_FAILURE',
+    'Failed to read the cached wallet session.',
+  );
+}
+
+async function saveCurrentNativeSession(
+  session: ConnectedWalletSession,
+): Promise<void> {
+  if (Capacitor.getPlatform() === 'android') {
+    await saveCurrentAndroidSession(session);
+    return;
+  }
+
+  await requireNativeMethod('saveCachedSession')({
+    session: JSON.stringify(session),
+  });
+}
+
+async function getStoredNativeWallet(): Promise<NativeWalletRecord | null> {
   if (cachedAndroidWallet !== undefined) {
     return cachedAndroidWallet;
   }
 
   const result = await requireNativeMethod('getWalletRecord')();
   if (!result.present) {
-    cachedAndroidWallet = null;
+    if (Capacitor.getPlatform() === 'android') {
+      cachedAndroidWallet = null;
+    }
     return null;
   }
 
   if (!result.publicKey || !result.secretKey) {
     throw walletError(
       'CRYPTOGRAPHY_FAILURE',
-      'The Android wallet record is incomplete.',
+      'The native wallet record is incomplete.',
     );
   }
 
-  cachedAndroidWallet = {
+  const wallet = {
     publicKey: result.publicKey,
     secretKey: result.secretKey,
   };
-  return cachedAndroidWallet;
+
+  if (Capacitor.getPlatform() === 'android') {
+    cachedAndroidWallet = wallet;
+  }
+
+  return wallet;
 }
 
-async function ensureAndroidWallet(): Promise<AndroidWalletRecord> {
-  const existingWallet = await getStoredAndroidWallet();
+async function ensureNativeWallet(): Promise<NativeWalletRecord> {
+  if (Capacitor.getPlatform() === 'android') {
+    return ensureAndroidWallet();
+  }
+
+  const existingWallet = await getStoredNativeWallet();
   if (existingWallet) {
     return existingWallet;
   }
 
-  const keyPair = nacl.sign.keyPair();
-  const nextWallet: AndroidWalletRecord = {
-    publicKey: encodeBase58(keyPair.publicKey),
-    secretKey: encodeBase58(keyPair.secretKey),
-  };
+  const nextWallet = createWalletRecordFromSeed(
+    nacl.randomBytes(nacl.sign.seedLength),
+  );
 
-  await requireNativeMethod('saveWalletRecord')(nextWallet);
-  cachedAndroidWallet = nextWallet;
+  await saveNativeWallet(nextWallet);
   return nextWallet;
 }
 
-async function requireAndroidWallet(): Promise<AndroidWalletRecord> {
+async function saveNativeWallet(wallet: NativeWalletRecord): Promise<void> {
+  await requireNativeMethod('saveWalletRecord')(wallet);
+
+  if (Capacitor.getPlatform() === 'android') {
+    cachedAndroidWallet = wallet;
+  }
+
+  await syncNativeSessionPublicKey(wallet.publicKey);
+}
+
+async function ensureAndroidWallet(): Promise<NativeWalletRecord> {
+  const existingWallet = await getStoredNativeWallet();
+  if (existingWallet) {
+    return existingWallet;
+  }
+
+  const nextWallet = createWalletRecordFromSeed(
+    nacl.randomBytes(nacl.sign.seedLength),
+  );
+
+  await saveNativeWallet(nextWallet);
+  return nextWallet;
+}
+
+async function requireAndroidWallet(): Promise<NativeWalletRecord> {
   const wallet = await ensureAndroidWallet();
   if (!wallet.publicKey || !wallet.secretKey) {
     throw walletError(
@@ -541,6 +654,81 @@ async function requireAndroidWallet(): Promise<AndroidWalletRecord> {
   }
 
   return wallet;
+}
+
+async function syncNativeSessionPublicKey(publicKey: string): Promise<void> {
+  const session = await getCurrentNativeSession();
+  const nativeWalletType = getPlatformNativeWalletType();
+
+  if (!session || session.walletType !== nativeWalletType) {
+    return;
+  }
+
+  if (session.publicKey === publicKey) {
+    return;
+  }
+
+  await saveCurrentNativeSession({
+    ...session,
+    publicKey,
+  });
+}
+
+function extractSeedFromWallet(wallet: NativeWalletRecord): Uint8Array {
+  const secretKey = decodeBase58(wallet.secretKey);
+  if (secretKey.length !== nacl.sign.secretKeyLength) {
+    throw walletError(
+      'CRYPTOGRAPHY_FAILURE',
+      'The native wallet secret key was malformed.',
+    );
+  }
+
+  const seed = secretKey.slice(0, nacl.sign.seedLength);
+  const rebuiltWallet = createWalletRecordFromSeed(seed);
+  if (
+    rebuiltWallet.publicKey !== wallet.publicKey ||
+    rebuiltWallet.secretKey !== wallet.secretKey
+  ) {
+    throw walletError(
+      'CRYPTOGRAPHY_FAILURE',
+      'The stored wallet could not be represented as recovery mnemonics.',
+    );
+  }
+
+  return seed;
+}
+
+function createWalletRecordFromSeed(seed: Uint8Array): NativeWalletRecord {
+  const keyPair = nacl.sign.keyPair.fromSeed(seed);
+
+  return {
+    publicKey: encodeBase58(keyPair.publicKey),
+    secretKey: encodeBase58(keyPair.secretKey),
+  };
+}
+
+function normalizeMnemonicInput(mnemonics: string | string[]): string {
+  if (Array.isArray(mnemonics)) {
+    return mnemonics.join(' ');
+  }
+
+  return mnemonics;
+}
+
+function assertNativeWalletPlatform(): void {
+  const platform = Capacitor.getPlatform();
+  if (platform === 'ios' || platform === 'android') {
+    return;
+  }
+
+  throw walletError(
+    'UNAVAILABLE',
+    'WalletExtension native wallet recovery is only available on iOS and Android.',
+  );
+}
+
+function getPlatformNativeWalletType(): NativeWalletType {
+  return Capacitor.getPlatform() === 'android' ? 'android' : 'icloud';
 }
 
 async function assertExternalWalletInstalled(
@@ -648,11 +836,11 @@ function decryptPayload(
   return textDecoder.decode(decrypted);
 }
 
-function parseJson<T>(value: string, message: string): T {
+function parseJson<T>(value: string, code: string, message: string): T {
   try {
     return JSON.parse(value) as T;
   } catch {
-    throw walletError('MALFORMED_CALLBACK', message);
+    throw walletError(code, message);
   }
 }
 

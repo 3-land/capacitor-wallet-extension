@@ -32,6 +32,14 @@ export interface SignTransactionsResult {
   walletType: WalletType;
 }
 
+export interface GetWalletMnemonicsResult {
+  mnemonics: string[];
+}
+
+export interface RecoverWalletFromMnemonicsOptions {
+  mnemonics: string | string[];
+}
+
 export interface HasWalletBeenBackedUpResult {
   backedUp: boolean;
 }
@@ -41,6 +49,10 @@ export interface WalletExtensionPlugin {
   connectUsing(options: ConnectUsingOptions): Promise<ConnectUsingResult>;
   signMessage(options: SignMessageOptions): Promise<SignMessageResult>;
   signTransactions(options: SignTransactionsOptions): Promise<SignTransactionsResult>;
+  getWalletMnemonics(): Promise<GetWalletMnemonicsResult>;
+  recoverWalletFromMnemonics(
+    options: RecoverWalletFromMnemonicsOptions,
+  ): Promise<boolean>;
   hasWalletBeenBackedUp(): Promise<HasWalletBeenBackedUpResult>;
   retryBackUp(): Promise<boolean>;
   logout(): Promise<void>;

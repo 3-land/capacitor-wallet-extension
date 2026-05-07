@@ -10,6 +10,10 @@ public class WalletExtensionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "connectUsing", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signMessage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signTransactions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getWalletRecord", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveWalletRecord", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getCachedSession", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveCachedSession", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "logout", returnType: CAPPluginReturnPromise)
     ]
 
@@ -120,6 +124,81 @@ public class WalletExtensionPlugin: CAPPlugin, CAPBridgedPlugin {
             reject(error, call: call)
         } catch {
             reject(.cryptography("Failed to clear the connected wallet session."), call: call)
+        }
+    }
+
+    @objc public func getWalletRecord(_ call: CAPPluginCall) {
+        do {
+            guard let record = try implementation.getWalletRecord() else {
+                call.resolve([
+                    "present": false
+                ])
+                return
+            }
+
+            call.resolve([
+                "present": true,
+                "publicKey": record.publicKey,
+                "secretKey": record.secretKey
+            ])
+        } catch let error as WalletExtensionError {
+            reject(error, call: call)
+        } catch {
+            reject(.cryptography("Failed to load the iCloud wallet record."), call: call)
+        }
+    }
+
+    @objc public func saveWalletRecord(_ call: CAPPluginCall) {
+        guard let publicKey = call.getString("publicKey"), !publicKey.isEmpty else {
+            reject(.missingParameter("publicKey"), call: call)
+            return
+        }
+
+        guard let secretKey = call.getString("secretKey"), !secretKey.isEmpty else {
+            reject(.missingParameter("secretKey"), call: call)
+            return
+        }
+
+        do {
+            try implementation.saveWalletRecord(publicKey: publicKey, secretKey: secretKey)
+            call.resolve()
+        } catch let error as WalletExtensionError {
+            reject(error, call: call)
+        } catch {
+            reject(.cryptography("Failed to store the iCloud wallet record."), call: call)
+        }
+    }
+
+    @objc public func getCachedSession(_ call: CAPPluginCall) {
+        do {
+            if let session = try implementation.getCachedSession() {
+                call.resolve([
+                    "session": session
+                ])
+                return
+            }
+
+            call.resolve()
+        } catch let error as WalletExtensionError {
+            reject(error, call: call)
+        } catch {
+            reject(.cryptography("Failed to load the cached wallet session."), call: call)
+        }
+    }
+
+    @objc public func saveCachedSession(_ call: CAPPluginCall) {
+        guard let session = call.getString("session"), !session.isEmpty else {
+            reject(.missingParameter("session"), call: call)
+            return
+        }
+
+        do {
+            try implementation.saveCachedSession(session)
+            call.resolve()
+        } catch let error as WalletExtensionError {
+            reject(error, call: call)
+        } catch {
+            reject(.cryptography("Failed to cache the connected wallet session."), call: call)
         }
     }
 

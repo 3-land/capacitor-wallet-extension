@@ -24,7 +24,7 @@ final class ICloudWalletManager {
             secretKey: secretKey
         )
 
-        try storage.save(try encoder.encode(record), account: account)
+        try saveWalletRecord(record)
 
         return ICloudWallet(
             publicKey: publicKey,
@@ -55,12 +55,42 @@ final class ICloudWalletManager {
         }
     }
 
-    private func loadWallet() throws -> ICloudWallet? {
+    func loadWalletRecord() throws -> ICloudWalletRecord? {
         guard let data = try storage.load(account: account) else {
             return nil
         }
 
-        let record = try decoder.decode(ICloudWalletRecord.self, from: data)
+        return try decoder.decode(ICloudWalletRecord.self, from: data)
+    }
+
+    func saveWalletRecord(_ record: ICloudWalletRecord) throws {
+        let secretKey = try Base58Coder.decode(record.secretKey)
+        guard secretKey.count == 64 else {
+            throw WalletExtensionError.cryptography("The wallet record secret key was malformed.")
+        }
+
+        let seed = secretKey.subdata(in: 0..<32)
+        let keyPair = try NaclSign.KeyPair.keyPair(fromSeed: seed)
+        let derivedPublicKey = try Base58Coder.encode(Data(keyPair.publicKey))
+        let derivedSecretKey = try Base58Coder.encode(Data(keyPair.secretKey))
+
+        guard record.publicKey == derivedPublicKey,
+              record.secretKey == derivedSecretKey else {
+            throw WalletExtensionError.cryptography("The wallet record did not match the supplied secret key.")
+        }
+
+        let validatedRecord = ICloudWalletRecord(
+            publicKey: derivedPublicKey,
+            secretKey: derivedSecretKey
+        )
+
+        try storage.save(try encoder.encode(validatedRecord), account: account)
+    }
+
+    private func loadWallet() throws -> ICloudWallet? {
+        guard let record = try loadWalletRecord() else {
+            return nil
+        }
 
         return ICloudWallet(
             publicKey: record.publicKey,

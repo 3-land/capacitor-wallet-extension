@@ -2,12 +2,14 @@
 
 Capacitor 7 plugin for Solana wallet connectivity in a Capacitor app.
 
-It exposes seven native methods:
+It exposes nine public methods:
 
 - `getAvailableWallets()`
 - `connectUsing({ walletType })`
 - `signMessage({ message })`
 - `signTransactions({ transactions })`
+- `getWalletMnemonics()`
+- `recoverWalletFromMnemonics({ mnemonics })`
 - `hasWalletBeenBackedUp()`
 - `retryBackUp()`
 - `logout()`
@@ -119,6 +121,12 @@ const { transactions } = await WalletExtension.signTransactions({
   transactions: ['2M9n7m7yJtmY8Y9m6aXvP7hL9Xy7xG4vYvL1Y9EwPq...'],
 });
 
+const { mnemonics } = await WalletExtension.getWalletMnemonics();
+
+const recovered = await WalletExtension.recoverWalletFromMnemonics({
+  mnemonics,
+});
+
 await WalletExtension.logout();
 ```
 
@@ -190,6 +198,44 @@ Returns:
   walletType: 'icloud' | 'android' | 'phantom' | 'solflare' | 'backpack';
 }
 ```
+
+### `getWalletMnemonics()`
+
+Exports the platform-native wallet as a 24-word BIP39 recovery phrase.
+
+- On iOS, this reads the `icloud` wallet stored in iCloud Keychain.
+- On Android, this reads the native `android` wallet stored with Android Keystore and backed up through Block Store.
+- If the native wallet does not exist yet, the plugin creates it first and then returns its mnemonics.
+- External wallets such as Phantom, Solflare, and Backpack are not exported by this method.
+
+Returns:
+
+```ts
+{
+  mnemonics: string[];
+}
+```
+
+### `recoverWalletFromMnemonics({ mnemonics })`
+
+Recovers and overwrites the platform-native wallet from a previously exported 24-word BIP39 recovery phrase.
+
+- `mnemonics` can be either a space-delimited string or an array of words.
+- On iOS, the recovered wallet overwrites the existing iCloud Keychain record.
+- On Android, the recovered wallet overwrites the encrypted local record and then attempts to sync Block Store again.
+- If the recovered native wallet is currently connected, the cached native session is updated to the recovered public key automatically.
+
+Returns:
+
+```ts
+true
+```
+
+Notes:
+
+- `false` means the phrase was invalid or the recovery flow could not finish successfully.
+- On Android, `false` can also mean the local encrypted wallet was replaced but Block Store still failed to resync afterward.
+- This method only applies to the native `icloud` or `android` wallet for the current platform.
 
 ### `logout()`
 
