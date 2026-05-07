@@ -330,6 +330,6 @@ public class WalletExtensionPlugin extends Plugin {
     }
 
     private void reject(PluginCall call, String code, String message) {
-        call.reject(message, code, null);
+        call.reject(message, code);
     }
 }
