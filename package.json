@@ -1,6 +1,6 @@
 {
   "name": "@3land/capacitor-wallet-extension",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Capacitor 7 plugin for connecting Solana wallets through native iOS/Android wallets or external wallet deeplinks.",
   "main": "dist/esm/index.js",
   "module": "dist/esm/index.js",
