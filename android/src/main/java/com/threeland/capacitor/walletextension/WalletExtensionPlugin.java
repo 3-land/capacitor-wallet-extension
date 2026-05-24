@@ -17,7 +17,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "WalletExtension")
 public class WalletExtensionPlugin extends Plugin {
     private static final String CALLBACK_HOST = "wallet-extension";
-    private static final long REQUEST_TIMEOUT_MS = 120000L;
+    private static final long REQUEST_TIMEOUT_MS = 60000L;
     private static final String PENDING_PREFS_NAME =
         "com.3land.capacitor-wallet-extension.pending";
     private static final String PENDING_CALL_ID_KEY = "pending-deeplink-call-id";

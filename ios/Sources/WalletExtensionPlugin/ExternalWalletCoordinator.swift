@@ -161,7 +161,7 @@ final class ExternalWalletCoordinator {
 
     private let redirectHost = "wallet-extension"
     private let cluster = "mainnet-beta"
-    private let requestTimeout: TimeInterval = 120
+    private let requestTimeout: TimeInterval = 60
 
     private var configuredURLs: ExternalWalletURLConfiguration?
     private var pendingRequest: PendingRequest?
