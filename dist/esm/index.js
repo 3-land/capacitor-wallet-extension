@@ -28,7 +28,16 @@ const externalWallets = {
 let cachedSession;
 let cachedAndroidWallet;
 let cachedRedirectScheme;
+let configuredExternalWalletUrls;
 const WalletExtension = {
+    async configureExternalWalletUrls(options) {
+        const normalizedOptions = normalizeExternalWalletUrls(options);
+        configuredExternalWalletUrls = normalizedOptions;
+        const nativeMethod = WalletExtensionNative.configureExternalWalletUrls;
+        if (nativeMethod) {
+            await nativeMethod.bind(WalletExtensionNative)(normalizedOptions);
+        }
+    },
     async getAvailableWallets() {
         if (Capacitor.getPlatform() !== 'android') {
             return requireNativeMethod('getAvailableWallets')();
@@ -76,13 +85,14 @@ const WalletExtension = {
         const dappEncryptionKeyPair = nacl.box.keyPair();
         const dappPublicKey = encodeBase58(dappEncryptionKeyPair.publicKey);
         const dappSecretKey = encodeBase58(dappEncryptionKeyPair.secretKey);
+        const connectRedirectUrl = await buildRedirectUrl('/connect');
         const callback = await openWalletDeeplink(walletType, buildExternalWalletUrl(externalWallets[walletType].connectUrl, {
             app_url: await buildBaseAppUrl(),
             dapp_encryption_public_key: dappPublicKey,
-            redirect_link: await buildRedirectUrl('/connect'),
+            redirect_link: connectRedirectUrl,
             cluster: CLUSTER,
         }));
-        const query = parseWalletCallback(callback, '/connect');
+        const query = parseWalletCallback(callback, connectRedirectUrl);
         const errorMessage = query.get('errorMessage');
         if (errorMessage) {
             throw walletError('CALLBACK_ERROR', errorMessage);
@@ -134,13 +144,14 @@ const WalletExtension = {
             session: externalSession.session,
         }));
         const encryptedPayload = nacl.box(payload, nonce, decodeBase58(externalSession.walletEncryptionPublicKey), decodeBase58(externalSession.dappEncryptionSecretKey));
+        const signMessageRedirectUrl = await buildRedirectUrl('/sign-message');
         const callback = await openWalletDeeplink(externalSession.walletType, buildExternalWalletUrl(externalWallets[externalSession.walletType].signMessageUrl, {
             dapp_encryption_public_key: externalSession.dappEncryptionPublicKey,
             nonce: encodeBase58(nonce),
-            redirect_link: await buildRedirectUrl('/sign-message'),
+            redirect_link: signMessageRedirectUrl,
             payload: encodeBase58(encryptedPayload),
         }));
-        const query = parseWalletCallback(callback, '/sign-message');
+        const query = parseWalletCallback(callback, signMessageRedirectUrl);
         const errorMessage = query.get('errorMessage');
         if (errorMessage) {
             throw walletError('CALLBACK_ERROR', errorMessage);
@@ -180,13 +191,14 @@ const WalletExtension = {
             session: externalSession.session,
         }));
         const encryptedPayload = nacl.box(payload, nonce, decodeBase58(externalSession.walletEncryptionPublicKey), decodeBase58(externalSession.dappEncryptionSecretKey));
+        const signTransactionsRedirectUrl = await buildRedirectUrl('/sign-transactions');
         const callback = await openWalletDeeplink(externalSession.walletType, buildExternalWalletUrl(externalWallets[externalSession.walletType].signAllTransactionsUrl, {
             dapp_encryption_public_key: externalSession.dappEncryptionPublicKey,
             nonce: encodeBase58(nonce),
-            redirect_link: await buildRedirectUrl('/sign-transactions'),
+            redirect_link: signTransactionsRedirectUrl,
             payload: encodeBase58(encryptedPayload),
         }));
-        const query = parseWalletCallback(callback, '/sign-transactions');
+        const query = parseWalletCallback(callback, signTransactionsRedirectUrl);
         const errorMessage = query.get('errorMessage');
         if (errorMessage) {
             throw walletError('CALLBACK_ERROR', errorMessage);
@@ -435,10 +447,16 @@ async function getRedirectScheme() {
     return cachedRedirectScheme;
 }
 async function buildRedirectUrl(path) {
+    if (configuredExternalWalletUrls) {
+        return appendUrlPath(configuredExternalWalletUrls.redirectBaseUrl, path);
+    }
     const scheme = await getRedirectScheme();
     return `${scheme}://${REDIRECT_HOST}${path}`;
 }
 async function buildBaseAppUrl() {
+    if (configuredExternalWalletUrls) {
+        return configuredExternalWalletUrls.appUrl;
+    }
     const scheme = await getRedirectScheme();
     return `${scheme}://${REDIRECT_HOST}/app`;
 }
@@ -456,12 +474,65 @@ async function openWalletDeeplink(walletType, url) {
     });
     return result.callbackUrl;
 }
-function parseWalletCallback(callbackUrl, expectedPath) {
+function parseWalletCallback(callbackUrl, expectedRedirectUrl) {
     const callback = new URL(callbackUrl);
-    if (callback.host !== REDIRECT_HOST || callback.pathname !== expectedPath) {
+    const expected = new URL(expectedRedirectUrl);
+    if (!urlsMatch(callback, expected)) {
         throw walletError('MALFORMED_CALLBACK', 'The wallet callback was received on an unexpected redirect URL.');
     }
     return callback.searchParams;
+}
+function normalizeExternalWalletUrls(options) {
+    return {
+        appUrl: normalizeAbsoluteUrl(options.appUrl, 'appUrl', false, 'The external wallet app URL must be a valid absolute URL.'),
+        redirectBaseUrl: normalizeAbsoluteUrl(options.redirectBaseUrl, 'redirectBaseUrl', true, 'The external wallet redirect base URL must be a valid absolute URL.'),
+    };
+}
+function normalizeAbsoluteUrl(value, parameterName, trimTrailingSlash, invalidMessage) {
+    if (!value) {
+        throw walletError('INVALID_EXTERNAL_WALLET_CONFIGURATION', `Missing required parameter '${parameterName}'.`);
+    }
+    let url;
+    try {
+        url = new URL(value);
+    }
+    catch {
+        throw walletError('INVALID_EXTERNAL_WALLET_CONFIGURATION', invalidMessage);
+    }
+    if (!url.protocol || !url.host) {
+        throw walletError('INVALID_EXTERNAL_WALLET_CONFIGURATION', invalidMessage);
+    }
+    url.hash = '';
+    if (trimTrailingSlash) {
+        url.search = '';
+        url.pathname = normalizeBasePath(url.pathname);
+    }
+    return url.toString();
+}
+function appendUrlPath(baseUrl, path) {
+    const url = new URL(baseUrl);
+    url.search = '';
+    url.hash = '';
+    url.pathname = joinPaths(url.pathname, path);
+    return url.toString();
+}
+function urlsMatch(left, right) {
+    return (left.protocol === right.protocol &&
+        left.host === right.host &&
+        normalizeBasePath(left.pathname) === normalizeBasePath(right.pathname));
+}
+function joinPaths(basePath, nextPath) {
+    const normalizedBasePath = normalizeBasePath(basePath);
+    const normalizedNextPath = nextPath.startsWith('/') ? nextPath : `/${nextPath}`;
+    return normalizedBasePath
+        ? `${normalizedBasePath}${normalizedNextPath}`
+        : normalizedNextPath;
+}
+function normalizeBasePath(pathname) {
+    if (!pathname || pathname === '/') {
+        return '';
+    }
+    return pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
 }
 function decryptPayload(query, walletEncryptionPublicKey, dappSecretKey) {
     const nonce = query.get('nonce');

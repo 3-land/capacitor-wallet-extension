@@ -14,6 +14,11 @@ export interface ConnectUsingResult {
   cached: boolean;
 }
 
+export interface ConfigureExternalWalletUrlsOptions {
+  appUrl: string;
+  redirectBaseUrl: string;
+}
+
 export interface SignMessageOptions {
   message: string;
 }
@@ -45,6 +50,9 @@ export interface HasWalletBeenBackedUpResult {
 }
 
 export interface WalletExtensionPlugin {
+  configureExternalWalletUrls(
+    options: ConfigureExternalWalletUrlsOptions,
+  ): Promise<void>;
   getAvailableWallets(): Promise<GetAvailableWalletsResult>;
   connectUsing(options: ConnectUsingOptions): Promise<ConnectUsingResult>;
   signMessage(options: SignMessageOptions): Promise<SignMessageResult>;

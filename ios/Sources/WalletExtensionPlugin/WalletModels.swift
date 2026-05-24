@@ -101,6 +101,7 @@ enum WalletExtensionError: LocalizedError {
     case walletNotInstalled(String)
     case invalidBase58(String)
     case invalidRedirectScheme
+    case invalidExternalWalletConfiguration(String)
     case requestAlreadyPending
     case callbackError(String)
     case deeplinkFailure(String)
@@ -122,6 +123,8 @@ enum WalletExtensionError: LocalizedError {
             return "INVALID_BASE58"
         case .invalidRedirectScheme:
             return "INVALID_REDIRECT_SCHEME"
+        case .invalidExternalWalletConfiguration:
+            return "INVALID_EXTERNAL_WALLET_CONFIGURATION"
         case .requestAlreadyPending:
             return "REQUEST_ALREADY_PENDING"
         case .callbackError:
@@ -151,6 +154,8 @@ enum WalletExtensionError: LocalizedError {
             return message
         case .invalidRedirectScheme:
             return "No app URL scheme was found. Configure CFBundleURLTypes in your iOS app."
+        case .invalidExternalWalletConfiguration(let message):
+            return message
         case .requestAlreadyPending:
             return "A wallet request is already in progress."
         case .callbackError(let message):

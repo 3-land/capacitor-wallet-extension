@@ -21,21 +21,28 @@ public class WalletExtensionPlugin extends Plugin {
     private static final String PENDING_PREFS_NAME =
         "com.3land.capacitor-wallet-extension.pending";
     private static final String PENDING_CALL_ID_KEY = "pending-deeplink-call-id";
+    private static final String PENDING_REDIRECT_URL_KEY =
+        "pending-deeplink-redirect-url";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private AndroidWalletStore walletStore;
     private WalletSessionStore sessionStore;
     private String pendingDeeplinkCallId;
+    private Uri pendingRedirectUri;
     private Runnable pendingTimeoutRunnable;
 
     @Override
     public void load() {
         walletStore = new AndroidWalletStore(getContext());
         sessionStore = new WalletSessionStore(getContext());
-        pendingDeeplinkCallId = getContext()
-            .getSharedPreferences(PENDING_PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(PENDING_CALL_ID_KEY, null);
+        pendingDeeplinkCallId = getPendingPreferences().getString(PENDING_CALL_ID_KEY, null);
+        String pendingRedirectUrl = getPendingPreferences()
+            .getString(PENDING_REDIRECT_URL_KEY, null);
+        pendingRedirectUri =
+            pendingRedirectUrl == null || pendingRedirectUrl.isEmpty()
+                ? null
+                : Uri.parse(pendingRedirectUrl);
         maybeHandleCallbackIntent(getActivity() != null ? getActivity().getIntent() : null);
     }
 
@@ -208,13 +215,18 @@ public class WalletExtensionPlugin extends Plugin {
         }
 
         try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            Uri deeplinkUri = Uri.parse(url);
+            String redirectLink = deeplinkUri.getQueryParameter("redirect_link");
+            Uri redirectUri = parseRedirectUri(redirectLink);
+            Intent intent = new Intent(Intent.ACTION_VIEW, deeplinkUri);
             intent.setPackage(provider.getPackageName());
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
 
             bridge.saveCall(call);
             pendingDeeplinkCallId = call.getCallbackId();
+            pendingRedirectUri = redirectUri;
             persistPendingCallId(pendingDeeplinkCallId);
+            persistPendingRedirectUrl(redirectUri.toString());
             scheduleTimeout();
 
             if (getActivity() != null) {
@@ -294,8 +306,15 @@ public class WalletExtensionPlugin extends Plugin {
     }
 
     private boolean isWalletCallback(Uri uri) {
-        return uri != null
-            && CALLBACK_HOST.equals(uri.getHost())
+        if (uri == null) {
+            return false;
+        }
+
+        if (pendingRedirectUri != null) {
+            return urlsMatch(uri, pendingRedirectUri);
+        }
+
+        return CALLBACK_HOST.equals(uri.getHost())
             && getContext().getPackageName().equals(uri.getScheme());
     }
 
@@ -319,16 +338,18 @@ public class WalletExtensionPlugin extends Plugin {
 
     private void clearPendingState() {
         persistPendingCallId(null);
+        persistPendingRedirectUrl(null);
         pendingDeeplinkCallId = null;
+        pendingRedirectUri = null;
         clearTimeout();
     }
 
     private void persistPendingCallId(String callbackId) {
-        getContext()
-            .getSharedPreferences(PENDING_PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(PENDING_CALL_ID_KEY, callbackId)
-            .apply();
+        getPendingPreferences().edit().putString(PENDING_CALL_ID_KEY, callbackId).apply();
+    }
+
+    private void persistPendingRedirectUrl(String redirectUrl) {
+        getPendingPreferences().edit().putString(PENDING_REDIRECT_URL_KEY, redirectUrl).apply();
     }
 
     private void cancelPendingRequest(String message) {
@@ -347,5 +368,48 @@ public class WalletExtensionPlugin extends Plugin {
 
     private void reject(PluginCall call, String code, String message) {
         call.reject(message, code);
+    }
+
+    private android.content.SharedPreferences getPendingPreferences() {
+        return getContext().getSharedPreferences(PENDING_PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    private Uri parseRedirectUri(String redirectLink) {
+        if (redirectLink == null || redirectLink.isEmpty()) {
+            throw new IllegalArgumentException("Missing redirect_link.");
+        }
+
+        Uri redirectUri = Uri.parse(redirectLink);
+        if (redirectUri.getScheme() == null || redirectUri.getScheme().isEmpty()) {
+            throw new IllegalArgumentException("Missing redirect scheme.");
+        }
+
+        if (redirectUri.getAuthority() == null || redirectUri.getAuthority().isEmpty()) {
+            throw new IllegalArgumentException("Missing redirect authority.");
+        }
+
+        return redirectUri;
+    }
+
+    private boolean urlsMatch(Uri left, Uri right) {
+        return stringEquals(left.getScheme(), right.getScheme())
+            && stringEquals(left.getAuthority(), right.getAuthority())
+            && normalizePath(left.getPath()).equals(normalizePath(right.getPath()));
+    }
+
+    private boolean stringEquals(String left, String right) {
+        if (left == null) {
+            return right == null;
+        }
+
+        return left.equals(right);
+    }
+
+    private String normalizePath(String path) {
+        if (path == null || path.isEmpty() || "/".equals(path)) {
+            return "";
+        }
+
+        return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
     }
 }

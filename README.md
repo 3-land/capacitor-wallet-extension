@@ -2,8 +2,9 @@
 
 Capacitor 7 plugin for Solana wallet connectivity in a Capacitor app.
 
-It exposes nine public methods:
+It exposes ten public methods:
 
+- `configureExternalWalletUrls({ appUrl, redirectBaseUrl })`
 - `getAvailableWallets()`
 - `connectUsing({ walletType })`
 - `signMessage({ message })`
@@ -68,6 +69,14 @@ Add wallet query schemes too:
 These query schemes are only used for installed-app detection.
 The actual connect and signing requests still use the wallets' documented `https://.../ul/v1/...` deeplink endpoints.
 
+If you want the wallet callback to come back through an `https://...` Universal Link instead of the default custom scheme, call `configureExternalWalletUrls(...)` before `connectUsing(...)` and configure the host app's Associated Domains for that HTTPS host.
+
+Example Associated Domains entry:
+
+```text
+applinks:gib.meme
+```
+
 ## Android Setup
 
 The Android implementation ships its own package-visibility queries for Phantom, Solflare, and Backpack, plus a redirect activity that listens on:
@@ -77,6 +86,25 @@ ${applicationId}://wallet-extension/...
 ```
 
 So most Capacitor apps do not need any extra Android manifest changes just to use wallet discovery or deeplink callbacks.
+
+If you call `configureExternalWalletUrls(...)` with an `https://...` `redirectBaseUrl`, Android also needs an App Links intent filter in your app so that HTTPS callback host opens your Capacitor activity. The plugin can build and validate the HTTPS callback URL, but Android still needs your app manifest and Digital Asset Links setup to claim that host.
+
+Example host-app intent filter:
+
+```xml
+<intent-filter android:autoVerify="true">
+  <action android:name="android.intent.action.VIEW" />
+
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+
+  <data
+    android:scheme="https"
+    android:host="gib.meme" />
+</intent-filter>
+```
+
+If your `redirectBaseUrl` includes a path prefix such as `https://gib.meme/wallet-extension`, add the matching `android:pathPrefix`.
 
 The native `android` wallet uses two storage layers:
 
@@ -107,6 +135,11 @@ The Android-only backup helper method exposes one signal:
 ```ts
 import { WalletExtension, type WalletType } from '@3land/capacitor-wallet-extension';
 
+await WalletExtension.configureExternalWalletUrls({
+  appUrl: 'https://gib.meme/app',
+  redirectBaseUrl: 'https://gib.meme',
+});
+
 const { wallets } = await WalletExtension.getAvailableWallets();
 
 const walletType: WalletType = wallets[0] ?? 'android';
@@ -131,6 +164,25 @@ await WalletExtension.logout();
 ```
 
 ## API
+
+### `configureExternalWalletUrls({ appUrl, redirectBaseUrl })`
+
+Overrides the URLs used for external wallet `app_url` and `redirect_link` parameters.
+
+- `appUrl` is used exactly as provided.
+- `redirectBaseUrl` is used as the base for `/connect`, `/sign-message`, and `/sign-transactions`.
+- Call this before `connectUsing(...)` when you want external wallets to return through an HTTPS Universal Link or App Link instead of the default custom scheme.
+- On iOS, configure Associated Domains for that HTTPS host.
+- On Android, add an App Links intent filter for that HTTPS host in the host app and publish the matching `assetlinks.json`.
+
+Example:
+
+```ts
+await WalletExtension.configureExternalWalletUrls({
+  appUrl: 'https://gib.meme/app',
+  redirectBaseUrl: 'https://gib.meme',
+});
+```
 
 ### `getAvailableWallets()`
 

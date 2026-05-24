@@ -12,6 +12,16 @@ final class WalletExtension {
         walletAvailabilityChecker.availableWallets().map(\.rawValue)
     }
 
+    func configureExternalWalletUrls(
+        appUrl: String,
+        redirectBaseUrl: String
+    ) throws {
+        try externalWalletCoordinator.configure(
+            appUrl: appUrl,
+            redirectBaseUrl: redirectBaseUrl
+        )
+    }
+
     func connect(
         using walletType: String,
         completion: @escaping (Result<(session: ConnectedWalletSession, cached: Bool), WalletExtensionError>) -> Void

@@ -6,6 +6,7 @@ public class WalletExtensionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "WalletExtensionPlugin"
     public let jsName = "WalletExtension"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "configureExternalWalletUrls", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getAvailableWallets", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectUsing", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signMessage", returnType: CAPPluginReturnPromise),
@@ -37,6 +38,36 @@ public class WalletExtensionPlugin: CAPPlugin, CAPBridgedPlugin {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc public func configureExternalWalletUrls(_ call: CAPPluginCall) {
+        guard let appUrl = call.getString("appUrl"), !appUrl.isEmpty else {
+            reject(.missingParameter("appUrl"), call: call)
+            return
+        }
+
+        guard let redirectBaseUrl = call.getString("redirectBaseUrl"),
+              !redirectBaseUrl.isEmpty else {
+            reject(.missingParameter("redirectBaseUrl"), call: call)
+            return
+        }
+
+        do {
+            try implementation.configureExternalWalletUrls(
+                appUrl: appUrl,
+                redirectBaseUrl: redirectBaseUrl
+            )
+            call.resolve()
+        } catch let error as WalletExtensionError {
+            reject(error, call: call)
+        } catch {
+            reject(
+                .invalidExternalWalletConfiguration(
+                    "Failed to configure the external wallet callback URLs."
+                ),
+                call: call
+            )
+        }
     }
 
     @objc public func getAvailableWallets(_ call: CAPPluginCall) {
